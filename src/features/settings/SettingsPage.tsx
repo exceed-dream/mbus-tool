@@ -1,0 +1,11 @@
+import { useState } from "react";
+import { Icon } from "../../components/Icon";
+import { PageHeader } from "../../components/PageHeader";
+import { Panel } from "../../components/Panel";
+import type { MbusMode } from "../../App";
+
+export function SettingsPage({ mode, onModeChange }: { mode: MbusMode; onModeChange: (mode: MbusMode) => void }) {
+  const [saved, setSaved] = useState(false);
+  const [showRaw, setShowRaw] = useState(true);
+  return <div className="page settings-page"><PageHeader eyebrow="System" title="Settings" description="Default connection and diagnostic preferences for this workstation."/><Panel title="M-Bus defaults" description="These settings are held in memory for the current session."><div className="settings-form"><label><span>M-Bus mode</span><select value={mode} onChange={(event) => onModeChange(event.target.value as MbusMode)}><option value="mock">Mock · no hardware</option><option value="real">Real · Tauri/Rust serial</option></select></label><label><span>Default baud rate</span><select defaultValue="2400"><option>300</option><option>600</option><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>19200</option></select></label><label><span>Scan timeout</span><div className="input-suffix"><input type="number" defaultValue="800"/><span>ms</span></div></label><label className="toggle-row"><div><span>Show raw M-Bus data</span><small>Expose decoded records and raw byte values in device details.</small></div><button className={`toggle ${showRaw ? "toggle--on" : ""}`} role="switch" aria-checked={showRaw} onClick={() => setShowRaw(!showRaw)}><span/></button></label></div><div className="form-actions"><button className="button button--primary" onClick={() => setSaved(true)}><Icon name="check"/>Save settings</button>{saved && <span className="saved-message">Settings saved for this session</span>}</div></Panel><Panel title="About"><dl className="detail-list"><div><dt>Application</dt><dd>M-Bus Tool</dd></div><div><dt>Version</dt><dd>0.1.0 · First real M-Bus communication</dd></div><div><dt>Runtime</dt><dd>Tauri 2 · React · TypeScript · Rust serial</dd></div><div><dt>Data mode</dt><dd><span className="mock-label">{mode.toUpperCase()}</span></dd></div><div><dt>M-Bus safety</dt><dd>Read-only · REQ_UD2</dd></div></dl></Panel></div>;
+}

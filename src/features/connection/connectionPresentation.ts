@@ -1,0 +1,2 @@
+export const CONNECTION_CONTROL_ORDER = ["Interface", "Refresh", "M-Bus mode", "Baud rate", "Timeout", "Serial format"] as const;
+export const CONNECTION_STATUS_ORDER = ["Connect action", "Connection status"] as const;
