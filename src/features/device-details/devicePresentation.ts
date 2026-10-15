@@ -5,7 +5,7 @@ export const DEVICE_TABLE_COLUMNS = ["Device ID", "Address", "Medium / Device", 
 export const DEVICE_SUMMARY_FIELDS = ["Device status", "Device", "Primary address", "Last read"] as const;
 export const DEVICE_DETAIL_TABS = ["Overview", "Data records", "Raw Telegram"] as const;
 export const OVERVIEW_SECTIONS = ["Current values", "Identification", "Communication"] as const;
-export const IDENTIFICATION_FIELD_ORDER = ["Primary address", "Secondary address", "Medium", "Manufacturer", "Manufacturer raw", "Identification number", "Version", "Fabrication number"] as const;
+export const IDENTIFICATION_FIELD_ORDER = ["Primary address", "Secondary address", "Manufacturer", "Identification number", "Version", "Medium", "Last read", "Manufacturer raw", "Fabrication number"] as const;
 
 export interface CurrentValuesPreview {
   records: MbusDataRecord[];

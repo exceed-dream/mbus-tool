@@ -555,6 +555,7 @@ fn decode_record(
     };
     MbusDataRecordDto {
         id: format!("record-{index}"),
+        record_index: index,
         label,
         function: function.to_string(),
         storage_number,
@@ -600,6 +601,7 @@ fn unsupported_record_with_details(
 ) -> MbusDataRecordDto {
     MbusDataRecordDto {
         id: format!("record-{index}"),
+        record_index: index,
         label: "Unsupported".to_string(),
         function: "Instantaneous".to_string(),
         storage_number: 0,
@@ -732,6 +734,7 @@ mod tests {
     fn parses_synthetic_volume_record() {
         let records = parse_records(&[0x04, 0x13, 0x40, 0xe2, 0x01, 0x00], true);
         assert_eq!(records.len(), 1);
+        assert_eq!(records[0].record_index, 0);
         assert_eq!(records[0].label, "Volume");
         assert_eq!(records[0].value, "123.456");
     }
@@ -777,6 +780,8 @@ mod tests {
         ];
         let records = parse_records(&raw, true);
         assert_eq!(records.len(), 2);
+        assert_eq!(records[0].record_index, 0);
+        assert_eq!(records[1].record_index, 1);
         assert_eq!(records[0].dife, ["01"]);
         assert_eq!(records[0].vif_description.as_deref(), Some("test"));
         assert_eq!(records[0].lvar.as_deref(), Some("03"));

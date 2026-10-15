@@ -89,6 +89,7 @@ pub struct SecondaryAddressDto {
 #[serde(rename_all = "camelCase")]
 pub struct MbusDataRecordDto {
     pub id: String,
+    pub record_index: usize,
     pub label: String,
     pub function: String,
     pub storage_number: u32,

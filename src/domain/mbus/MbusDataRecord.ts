@@ -1,5 +1,6 @@
 export interface MbusDataRecord {
   id: string;
+  recordIndex: number;
   label: string;
   function: "Instantaneous" | "Maximum" | "Minimum" | "Error state";
   storageNumber: number;

@@ -1,4 +1,4 @@
-export type IconName = "network" | "library" | "settings" | "device" | "search" | "usb" | "chevron" | "arrow" | "sliders" | "refresh" | "stop" | "check" | "activity" | "edit" | "close";
+export type IconName = "network" | "library" | "settings" | "device" | "search" | "usb" | "chevron" | "arrow" | "sliders" | "refresh" | "stop" | "check" | "activity" | "edit" | "download" | "close";
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -16,6 +16,7 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     check: <path d="m5 12 4 4L19 6"/>,
     activity: <path d="M3 12h4l2-7 4 14 2-7h6"/>,
     edit: <><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></>,
+    download: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></>,
     close: <><path d="M6 6l12 12M18 6 6 18"/></>,
   };
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;

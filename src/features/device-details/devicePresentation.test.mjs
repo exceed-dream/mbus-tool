@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 
 const detailsSource = readFileSync(new URL("./DeviceDetailsPage.tsx", import.meta.url), "utf8");
 
-const record = (id, label, value, unit, functionName = "Instantaneous", supported = true) => ({ id, label, value, unit, function: functionName, storageNumber: 0, rawValue: "00", supported });
+const record = (id, label, value, unit, functionName = "Instantaneous", supported = true) => ({ id, recordIndex: 0, label, value, unit, function: functionName, storageNumber: 0, rawValue: "00", supported });
 
 test("device table columns follow the requested order", () => {
   assert.deepEqual(DEVICE_TABLE_COLUMNS, ["Device ID", "Address", "Medium / Device", "Current values", "Status"]);
@@ -33,8 +33,15 @@ test("device details summary, tabs and overview sections have the requested stru
   assert.deepEqual(OVERVIEW_SECTIONS, ["Current values", "Identification", "Communication"]);
 });
 
-test("identification starts with primary, secondary and medium", () => {
-  assert.deepEqual(IDENTIFICATION_FIELD_ORDER.slice(0, 3), ["Primary address", "Secondary address", "Medium"]);
+test("identification exposes the required reading fields in order", () => {
+  assert.deepEqual(IDENTIFICATION_FIELD_ORDER.slice(0, 7), ["Primary address", "Secondary address", "Manufacturer", "Identification number", "Version", "Medium", "Last read"]);
+});
+
+test("overview exposes M-Bus records directly with Value before Unit", () => {
+  assert.match(detailsSource, /title="M-Bus Data Records"/);
+  assert.match(detailsSource, /<th>Record #<\/th><th>Function<\/th><th>Storage<\/th><th>Value<\/th><th>Unit<\/th><th>Raw value<\/th>/);
+  assert.match(detailsSource, /record\.recordIndex/);
+  assert.match(detailsSource, />Export reading<\/button>/);
 });
 
 test("Current value pencils reuse targeted Configuration navigation", () => {

@@ -15,11 +15,11 @@ export const mockDevices: MbusDevice[] = [
 ];
 
 export const mockRecords: MbusDataRecord[] = [
-  { id: "energy", label: "Energy", function: "Instantaneous", storageNumber: 0, unit: "kWh", value: "18,452.6", rawValue: "04 06 9A 28 00 00" },
-  { id: "volume", label: "Volume", function: "Instantaneous", storageNumber: 0, unit: "m³", value: "1,245.678", rawValue: "04 13 4E 61 BC 00" },
-  { id: "flow", label: "Flow", function: "Instantaneous", storageNumber: 0, unit: "m³/h", value: "0.842", rawValue: "04 3B 4A 03 00 00" },
-  { id: "power", label: "Power", function: "Maximum", storageNumber: 1, unit: "kW", value: "12.4", rawValue: "02 2B D8 04" },
-  { id: "temperature", label: "Temperature", function: "Instantaneous", storageNumber: 0, unit: "°C", value: "54.7", rawValue: "02 59 23 02" },
+  { id: "energy", recordIndex: 0, label: "Energy", function: "Instantaneous", storageNumber: 0, unit: "kWh", value: "18,452.6", rawValue: "04 06 9A 28 00 00" },
+  { id: "volume", recordIndex: 1, label: "Volume", function: "Instantaneous", storageNumber: 0, unit: "m³", value: "1,245.678", rawValue: "04 13 4E 61 BC 00" },
+  { id: "flow", recordIndex: 2, label: "Flow", function: "Instantaneous", storageNumber: 0, unit: "m³/h", value: "0.842", rawValue: "04 3B 4A 03 00 00" },
+  { id: "power", recordIndex: 3, label: "Power", function: "Maximum", storageNumber: 1, unit: "kW", value: "12.4", rawValue: "02 2B D8 04" },
+  { id: "temperature", recordIndex: 4, label: "Temperature", function: "Instantaneous", storageNumber: 0, unit: "°C", value: "54.7", rawValue: "02 59 23 02" },
 ];
 
 export const mockProfiles: DeviceProfile[] = [
