@@ -269,7 +269,9 @@ fn decode_status_flags(status: u8) -> Vec<String> {
     match status & 0x03 {
         0x01 => flags.push("Application busy".to_string()),
         0x02 => flags.push("Application error".to_string()),
-        0x03 => flags.push("Reserved application status".to_string()),
+        0x03 => flags.push(format!(
+            "Reserved M-Bus application status (bits 0-1, status byte 0x{status:02X})"
+        )),
         _ => {}
     }
     if status & 0x04 != 0 {
@@ -281,8 +283,12 @@ fn decode_status_flags(status: u8) -> Vec<String> {
     if status & 0x10 != 0 {
         flags.push("Temporary error".to_string());
     }
-    if status & 0xe0 != 0 {
-        flags.push("Manufacturer-specific status".to_string());
+    for bit in 5..=7 {
+        if status & (1 << bit) != 0 {
+            flags.push(format!(
+                "Manufacturer-specific M-Bus status flag (bit {bit}, status byte 0x{status:02X}); interpretation requires manufacturer documentation"
+            ));
+        }
     }
     flags
 }
@@ -709,7 +715,7 @@ fn format_number(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_manufacturer, decode_response, parse_records};
+    use super::{decode_manufacturer, decode_response, decode_status_flags, parse_records};
     use crate::mbus::frame::{encode_long_frame, parse};
     use crate::mbus::models::hex;
 
@@ -864,8 +870,15 @@ mod tests {
         assert_eq!(result.device.status_byte, Some(0x30));
         assert_eq!(
             result.device.status_flags,
-            ["Temporary error", "Manufacturer-specific status"]
+            [
+                "Temporary error",
+                "Manufacturer-specific M-Bus status flag (bit 5, status byte 0x30); interpretation requires manufacturer documentation"
+            ]
         );
+        let serialized = serde_json::to_value(&result.device).expect("serializable device");
+        assert_eq!(serialized["status"], "warning");
+        assert_eq!(serialized["statusByte"], 0x30);
+        assert_eq!(serialized["statusFlags"][0], "Temporary error");
 
         let values = result
             .records
@@ -895,6 +908,24 @@ mod tests {
     }
 
     #[test]
+    fn decodes_known_reserved_and_manufacturer_specific_status_bits() {
+        assert_eq!(
+            decode_status_flags(0x1c),
+            ["Power low", "Permanent error", "Temporary error"]
+        );
+        assert_eq!(
+            decode_status_flags(0xe3),
+            [
+                "Reserved M-Bus application status (bits 0-1, status byte 0xE3)",
+                "Manufacturer-specific M-Bus status flag (bit 5, status byte 0xE3); interpretation requires manufacturer documentation",
+                "Manufacturer-specific M-Bus status flag (bit 6, status byte 0xE3); interpretation requires manufacturer documentation",
+                "Manufacturer-specific M-Bus status flag (bit 7, status byte 0xE3); interpretation requires manufacturer documentation",
+            ]
+        );
+        assert!(decode_status_flags(0).is_empty());
+    }
+
+    #[test]
     fn preserves_the_validated_real_meter_response() {
         let raw = [
             0x68, 0x1b, 0x1b, 0x68, 0x08, 0x02, 0x72, 0x82, 0x54, 0x07, 0x22, 0xac, 0x48, 0x09,
@@ -912,6 +943,15 @@ mod tests {
             Some("22075482")
         );
         assert_eq!(result.device.primary_address, Some(2));
+        let secondary = result
+            .device
+            .secondary_address
+            .as_ref()
+            .expect("secondary identity decoded from the variable-data header");
+        assert_eq!(secondary.identification_number, "22075482");
+        assert_eq!(secondary.manufacturer_raw, 0x48ac);
+        assert_eq!(secondary.version, 9);
+        assert_eq!(secondary.medium, 1);
         assert_eq!(result.device.version.as_deref(), Some("9"));
         assert_eq!(result.device.medium.as_deref(), Some("Oil"));
         assert_eq!(result.device.medium_raw, Some(0x01));

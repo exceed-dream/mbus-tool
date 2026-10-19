@@ -4,6 +4,7 @@ import type { CommunicationLogEntry, DeviceReadResult, ManufacturerFrameWriteReq
 import type { ConfigurationWriteResult, TechnicalTelegram } from "../../domain/configuration/DeviceConfiguration";
 import type { MbusDataRecord } from "../../domain/mbus/MbusDataRecord";
 import type { MbusDevice } from "../../domain/mbus/MbusDevice";
+import { completeSecondaryIdentityKey } from "../../domain/mbus/MbusDevice";
 
 export class RealMbusClient implements MbusClient {
   private readonly cache = new Map<string, DeviceReadResult>();
@@ -26,6 +27,31 @@ export class RealMbusClient implements MbusClient {
       const results = await invoke<DeviceReadResult[]>("scan_secondary");
       results.forEach((result) => this.cache.set(result.device.id, result));
       return results.map((result) => result.device);
+    } finally {
+      unlisten.forEach((remove) => remove());
+    }
+  }
+
+  async completeMissingPrimaryAddresses(devices: MbusDevice[], observer?: ScanObserver): Promise<MbusDevice[]> {
+    const remaining = new Set(devices.map(completeSecondaryIdentityKey).filter((key): key is string => Boolean(key)));
+    const matches = new Map<string, MbusDevice>();
+    let stopRequested = false;
+    const captureMatch = (result: DeviceReadResult) => {
+      const key = completeSecondaryIdentityKey(result.device);
+      if (!key || !remaining.has(key) || result.device.primaryAddress === undefined) return;
+      remaining.delete(key);
+      matches.set(key, result.device);
+      observer?.onDevice?.(result);
+      if (!remaining.size && !stopRequested) {
+        stopRequested = true;
+        void this.stopScan();
+      }
+    };
+    const unlisten = await this.listenToEvents(observer, captureMatch);
+    try {
+      const results = await invoke<DeviceReadResult[]>("scan_primary", { options: { startAddress: 0, endAddress: 250 } });
+      results.forEach(captureMatch);
+      return [...matches.values()];
     } finally {
       unlisten.forEach((remove) => remove());
     }
@@ -98,14 +124,17 @@ export class RealMbusClient implements MbusClient {
     result.telegrams.forEach((telegram) => observer?.onLog?.({ timestamp: telegram.timestamp, level: telegram.direction, message: telegram.operation, address: telegram.primaryAddress, hex: telegram.rawTelegram }));
   }
 
-  private async listenToEvents(observer?: ScanObserver): Promise<UnlistenFn[]> {
+  private async listenToEvents(observer?: ScanObserver, onDevice?: (result: DeviceReadResult) => void): Promise<UnlistenFn[]> {
     if (!observer) return [];
     return Promise.all([
       listen<Omit<PrimaryScanProgress, "kind">>("mbus://scan-progress", ({ payload }) => observer.onProgress?.({ kind: "primary", ...payload })),
       listen<Omit<SecondaryScanProgress, "kind">>("mbus://secondary-progress", ({ payload }) => observer.onProgress?.({ kind: "secondary", ...payload })),
       listen<DeviceReadResult>("mbus://device-found", ({ payload }) => {
-        this.cache.set(payload.device.id, payload);
-        observer.onDevice?.(payload);
+        if (onDevice) onDevice(payload);
+        else {
+          this.cache.set(payload.device.id, payload);
+          observer.onDevice?.(payload);
+        }
       }),
       listen<CommunicationLogEntry>("mbus://log", ({ payload }) => observer.onLog?.(payload)),
     ]);

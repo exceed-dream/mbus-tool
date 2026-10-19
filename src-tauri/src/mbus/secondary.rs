@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::models::DeviceReadResult;
+use super::models::{DeviceReadResult, MbusDeviceDto};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecondaryAddressMask {
@@ -122,6 +122,60 @@ pub fn deduplicate_devices(devices: Vec<DeviceReadResult>) -> Vec<DeviceReadResu
         .collect()
 }
 
+pub fn retain_explicit_primary_address(result: &mut DeviceReadResult) {
+    result.device.primary_address = result.records.iter().find_map(|record| {
+        if !record.supported || !record.label.eq_ignore_ascii_case("Primary address") {
+            return None;
+        }
+        record
+            .value
+            .trim()
+            .parse::<u8>()
+            .ok()
+            .filter(|address| *address <= 250)
+    });
+}
+
+pub fn same_complete_secondary_identity(left: &MbusDeviceDto, right: &MbusDeviceDto) -> bool {
+    match (&left.secondary_address, &right.secondary_address) {
+        (Some(left), Some(right)) => {
+            left.identification_number == right.identification_number
+                && left.manufacturer_raw == right.manufacturer_raw
+                && left.version == right.version
+                && left.medium == right.medium
+        }
+        _ => false,
+    }
+}
+
+pub fn set_confirmed_primary_address(result: &mut DeviceReadResult, address: u8) {
+    result.device.primary_address = Some(address);
+    if let Some(configuration) = result.device.pad_puls_configuration.as_mut() {
+        configuration.primary_address = address;
+    }
+    if let Some(configuration) = result.device.cyble_configuration.as_mut() {
+        configuration.primary_address = address;
+    }
+}
+
+pub fn primary_address_candidate(
+    response_address: Option<u8>,
+    decoded_address: Option<u8>,
+) -> Option<u8> {
+    response_address
+        .or(decoded_address)
+        .filter(|address| *address <= 250)
+}
+
+pub fn confirmed_candidate_address(
+    candidate: u8,
+    discovered: &MbusDeviceDto,
+    verified: &MbusDeviceDto,
+) -> Option<u8> {
+    (candidate <= 250 && same_complete_secondary_identity(discovered, verified))
+        .then_some(candidate)
+}
+
 fn nibble(value: u8) -> Result<u8, String> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),
@@ -133,10 +187,14 @@ fn nibble(value: u8) -> Result<u8, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        branch_children, deduplicate_devices, initial_masks, refine_mask, SecondaryAddressMask,
+        branch_children, confirmed_candidate_address, deduplicate_devices, initial_masks,
+        primary_address_candidate, refine_mask, retain_explicit_primary_address,
+        same_complete_secondary_identity, set_confirmed_primary_address, SecondaryAddressMask,
         SecondaryProbeKind,
     };
-    use crate::mbus::models::{DeviceReadResult, MbusDeviceDto, RawTelegram, SecondaryAddressDto};
+    use crate::mbus::models::{
+        DeviceReadResult, MbusDataRecordDto, MbusDeviceDto, RawTelegram, SecondaryAddressDto,
+    };
 
     #[test]
     fn encodes_secondary_mask_in_mode_one_order() {
@@ -183,6 +241,104 @@ mod tests {
         let first = synthetic_result(Some(0));
         let second = synthetic_result(None);
         assert_eq!(deduplicate_devices(vec![first, second]).len(), 1);
+    }
+
+    #[test]
+    fn selected_transport_address_is_never_kept_without_explicit_data() {
+        let mut result = synthetic_result(Some(0xfd));
+        retain_explicit_primary_address(&mut result);
+        assert_eq!(result.device.primary_address, None);
+    }
+
+    #[test]
+    fn explicit_primary_address_record_is_retained() {
+        let mut result = synthetic_result(Some(0xfd));
+        result.records.push(primary_address_record("12"));
+        retain_explicit_primary_address(&mut result);
+        assert_eq!(result.device.primary_address, Some(12));
+    }
+
+    #[test]
+    fn reserved_explicit_primary_address_is_rejected() {
+        let mut result = synthetic_result(Some(0xfd));
+        result.records.push(primary_address_record("253"));
+        retain_explicit_primary_address(&mut result);
+        assert_eq!(result.device.primary_address, None);
+    }
+
+    #[test]
+    fn complete_secondary_identity_uses_all_four_fields() {
+        let original = synthetic_result(None);
+        let mut different = synthetic_result(None);
+        assert!(same_complete_secondary_identity(
+            &original.device,
+            &different.device
+        ));
+        different.device.secondary_address.as_mut().unwrap().medium = 4;
+        assert!(!same_complete_secondary_identity(
+            &original.device,
+            &different.device
+        ));
+    }
+
+    #[test]
+    fn confirmed_primary_address_updates_device_configurations() {
+        let mut result = synthetic_result(None);
+        set_confirmed_primary_address(&mut result, 4);
+        assert_eq!(result.device.primary_address, Some(4));
+    }
+
+    #[test]
+    fn valid_response_address_becomes_a_verification_candidate() {
+        assert_eq!(primary_address_candidate(Some(4), None), Some(4));
+    }
+
+    #[test]
+    fn selected_slave_address_is_never_a_verification_candidate() {
+        assert_eq!(primary_address_candidate(Some(0xfd), Some(0xfd)), None);
+    }
+
+    #[test]
+    fn matching_targeted_read_confirms_the_candidate() {
+        let discovered = synthetic_result(None);
+        let verified = synthetic_result(Some(4));
+        assert_eq!(
+            confirmed_candidate_address(4, &discovered.device, &verified.device),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn different_targeted_identity_rejects_the_candidate() {
+        let discovered = synthetic_result(None);
+        let mut verified = synthetic_result(Some(4));
+        verified.device.secondary_address.as_mut().unwrap().version = 2;
+        assert_eq!(
+            confirmed_candidate_address(4, &discovered.device, &verified.device),
+            None
+        );
+    }
+
+    fn primary_address_record(value: &str) -> MbusDataRecordDto {
+        MbusDataRecordDto {
+            id: "record-primary-address".to_string(),
+            record_index: 0,
+            label: "Primary address".to_string(),
+            function: "Instantaneous".to_string(),
+            storage_number: 0,
+            unit: String::new(),
+            value: value.to_string(),
+            raw_value: value.to_string(),
+            raw_bytes: value.to_string(),
+            dif: "01".to_string(),
+            vif: "7C".to_string(),
+            dife: Vec::new(),
+            vife: Vec::new(),
+            lvar: None,
+            vif_description: Some("Primary address".to_string()),
+            parse_status: "Decoded".to_string(),
+            supported: true,
+        }
     }
 
     fn synthetic_result(primary_address: Option<u8>) -> DeviceReadResult {

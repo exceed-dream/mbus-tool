@@ -10,7 +10,8 @@ export function hasConfigurableProfile(match: DeviceProfileMatch): boolean {
   return hasEditableConfigurationFields(profile);
 }
 
-export function configurationFieldIdForCurrentValue(profile: DeviceProfile | undefined, record: MbusDataRecord): string | undefined {
+export function configurationFieldIdForDataRecord(profile: DeviceProfile | undefined, record: MbusDataRecord): string | undefined {
+  if (record.function !== "Instantaneous" || record.storageNumber !== 0 || record.supported === false || record.parseStatus === "Unsupported" || record.parseStatus === "Error") return undefined;
   const recordKey = capabilityKey(record.label);
   return profile?.installerFields.find((field) => field.editable && ["SUPPORTED", "LOCAL_ONLY"].includes(field.writeSupport) && (capabilityKey(field.label) === recordKey || capabilityKey(field.id) === recordKey))?.id;
 }

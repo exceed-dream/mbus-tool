@@ -14,6 +14,7 @@ export interface ScanObserver { onProgress?: (progress: ScanProgress) => void; o
 export interface MbusReadClient {
   scanPrimary(options: PrimaryScanOptions, observer?: ScanObserver): Promise<MbusDevice[]>;
   scanSecondary(observer?: ScanObserver): Promise<MbusDevice[]>;
+  completeMissingPrimaryAddresses(devices: MbusDevice[], observer?: ScanObserver): Promise<MbusDevice[]>;
   readBySecondaryId(identificationNumber: string, observer?: ScanObserver): Promise<DeviceReadResult>;
   stopScan(): Promise<void>;
   readDevice(device: MbusDevice, observer?: ScanObserver): Promise<DeviceReadResult>;

@@ -22,5 +22,7 @@ pub use models::{
 };
 pub use padpuls::encode_configuration_frame as encode_padpuls_configuration_frame;
 pub use secondary::{
-    deduplicate_devices, initial_masks, refine_mask, SecondaryAddressMask, SecondaryProbeKind,
+    confirmed_candidate_address, deduplicate_devices, initial_masks, primary_address_candidate,
+    refine_mask, retain_explicit_primary_address, set_confirmed_primary_address,
+    SecondaryAddressMask, SecondaryProbeKind,
 };

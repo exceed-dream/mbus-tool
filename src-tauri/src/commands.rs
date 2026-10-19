@@ -5,17 +5,20 @@ use std::sync::{
 };
 use std::time::Instant;
 
+use serialport::SerialPort;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     mbus::{
-        deduplicate_devices, deselect_secondary, encode_padpuls_configuration_frame,
-        encode_req_ud2, encode_secondary_selection, encode_selected_req_ud2, encode_snd_ud,
-        exchange, hex, initial_masks, now_timestamp, parse_frame, probe_secondary_address,
-        read_primary_address, refine_mask, CommunicationLogEntry, ConfigurationWriteResult,
-        ConfigurationWriteStatus, DeviceReadResult, ManufacturerFrameWriteRequest, MbusFrame,
-        PadPulsWriteRequest, PrimaryAddressWriteRequest, ScanOptions, ScanProgress, ScanReadError,
-        SecondaryAddressMask, SecondaryProbeKind, SecondaryScanProgress, TechnicalTelegram,
+        confirmed_candidate_address, deduplicate_devices, deselect_secondary,
+        encode_padpuls_configuration_frame, encode_req_ud2, encode_secondary_selection,
+        encode_selected_req_ud2, encode_snd_ud, exchange, hex, initial_masks, now_timestamp,
+        parse_frame, primary_address_candidate, probe_secondary_address, read_primary_address,
+        refine_mask, retain_explicit_primary_address, set_confirmed_primary_address,
+        CommunicationLogEntry, ConfigurationWriteResult, ConfigurationWriteStatus,
+        DeviceReadResult, ManufacturerFrameWriteRequest, MbusFrame, PadPulsWriteRequest,
+        PrimaryAddressWriteRequest, ScanOptions, ScanProgress, ScanReadError, SecondaryAddressMask,
+        SecondaryProbeKind, SecondaryScanProgress, TechnicalTelegram,
     },
     serial::{self, SerialConnection, SerialConnectionSettings, SerialPortInfo},
 };
@@ -889,6 +892,7 @@ fn run_secondary_scan(app: &AppHandle, state: &AppState) -> Result<Vec<DeviceRea
         match probe.kind {
             SecondaryProbeKind::NoDevice => {}
             SecondaryProbeKind::SingleDevice => {
+                let response_address = probe.response_address;
                 emit_log(
                     app,
                     "TX",
@@ -900,12 +904,19 @@ fn run_secondary_scan(app: &AppHandle, state: &AppState) -> Result<Vec<DeviceRea
                     emit_log(
                         app,
                         "RX",
-                        "Secondary response",
-                        Some(0xfd),
+                        &secondary_response_message(response_address),
+                        response_address,
                         Some(hex(response)),
                     );
                 }
-                if let Some(result) = probe.result {
+                if let Some(mut result) = probe.result {
+                    resolve_secondary_primary_address(
+                        app,
+                        connection.port.as_mut(),
+                        connection.settings.baud_rate,
+                        &mut result,
+                        response_address,
+                    );
                     let identification = result
                         .device
                         .identification_number
@@ -1016,6 +1027,7 @@ fn read_known_secondary(
             mask.identification_number
         )),
         SecondaryProbeKind::SingleDevice => {
+            let response_address = probe.response_address;
             emit_log(
                 app,
                 "TX",
@@ -1027,14 +1039,21 @@ fn read_known_secondary(
                 emit_log(
                     app,
                     "RX",
-                    "Secondary response",
-                    Some(0xfd),
+                    &secondary_response_message(response_address),
+                    response_address,
                     Some(hex(response)),
                 );
             }
-            let result = probe
+            let mut result = probe
                 .result
                 .ok_or_else(|| "Secondary response did not contain device data".to_string())?;
+            resolve_secondary_primary_address(
+                app,
+                connection.port.as_mut(),
+                connection.settings.baud_rate,
+                &mut result,
+                response_address,
+            );
             emit_log(
                 app,
                 "SECONDARY",
@@ -1044,6 +1063,104 @@ fn read_known_secondary(
             );
             Ok(result)
         }
+    }
+}
+
+fn secondary_response_message(address: Option<u8>) -> String {
+    address
+        .map(|address| format!("Secondary response (A=0x{address:02X})"))
+        .unwrap_or_else(|| "Secondary response (A unavailable)".to_string())
+}
+
+fn resolve_secondary_primary_address(
+    app: &AppHandle,
+    port: &mut dyn SerialPort,
+    baud_rate: u32,
+    result: &mut DeviceReadResult,
+    response_address: Option<u8>,
+) {
+    let decoded_address = result.device.primary_address;
+    retain_explicit_primary_address(result);
+    if let Some(address) = result.device.primary_address {
+        set_confirmed_primary_address(result, address);
+        emit_log(
+            app,
+            "SECONDARY",
+            "Primary address decoded explicitly from device data",
+            Some(address),
+            None,
+        );
+        return;
+    }
+
+    let candidate = primary_address_candidate(response_address, decoded_address);
+    let Some(candidate) = candidate else {
+        emit_log(
+            app,
+            "SECONDARY",
+            "Primary address remains unknown: response did not provide a valid candidate",
+            None,
+            None,
+        );
+        return;
+    };
+
+    emit_log(
+        app,
+        "VERIFY",
+        "Verifying primary address candidate from secondary response",
+        Some(candidate),
+        None,
+    );
+    emit_tx(app, candidate);
+    match read_primary_address(port, candidate, baud_rate) {
+        Ok((verified, _, response)) => {
+            emit_log(
+                app,
+                "RX",
+                "Targeted primary verification response",
+                Some(candidate),
+                Some(hex(&response)),
+            );
+            if confirmed_candidate_address(candidate, &result.device, &verified.device).is_some() {
+                set_confirmed_primary_address(result, candidate);
+                emit_log(
+                    app,
+                    "VERIFY",
+                    "Primary address confirmed by complete secondary identity",
+                    Some(candidate),
+                    None,
+                );
+            } else {
+                emit_log(
+                    app,
+                    "VERIFY",
+                    "Primary address candidate rejected: secondary identity differs",
+                    Some(candidate),
+                    None,
+                );
+            }
+        }
+        Err(error) => emit_log(
+            app,
+            "VERIFY",
+            &format!(
+                "Primary address candidate could not be confirmed: {}",
+                read_error_message(error)
+            ),
+            Some(candidate),
+            None,
+        ),
+    }
+
+    if result.device.primary_address.is_none() {
+        emit_log(
+            app,
+            "SECONDARY",
+            "Primary address remains unknown",
+            None,
+            None,
+        );
     }
 }
 

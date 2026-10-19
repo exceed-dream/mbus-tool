@@ -1,4 +1,4 @@
-export type IconName = "network" | "library" | "settings" | "device" | "search" | "usb" | "chevron" | "arrow" | "sliders" | "refresh" | "stop" | "check" | "activity" | "edit" | "download" | "close";
+export type IconName = "network" | "library" | "settings" | "device" | "search" | "usb" | "chevron" | "chevron-left" | "chevron-down" | "arrow" | "sliders" | "refresh" | "stop" | "check" | "activity" | "edit" | "download" | "close";
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -9,6 +9,8 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     search: <><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></>,
     usb: <><path d="M12 19V5M9 8l3-3 3 3M12 13 8 9H6M12 16l4-4h2"/><circle cx="5" cy="9" r="1"/><rect x="18" y="10.5" width="2.5" height="2.5" rx=".3"/><circle cx="12" cy="20" r="1.5"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
+    "chevron-left": <path d="m15 18-6-6 6-6"/>,
+    "chevron-down": <path d="m6 9 6 6 6-6"/>,
     arrow: <><path d="m15 18-6-6 6-6"/></>,
     sliders: <><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></>,
     refresh: <><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></>,

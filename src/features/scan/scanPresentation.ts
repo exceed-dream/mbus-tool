@@ -1,3 +1,5 @@
+import { hasMissingPrimaryAddress, type MbusDevice } from "../../domain/mbus/MbusDevice.ts";
+
 export type NetworkScanMode = "quick" | "primary";
 
 export function runSelectedScan(mode: NetworkScanMode, quick: () => void, primary: () => void): void {
@@ -5,6 +7,10 @@ export function runSelectedScan(mode: NetworkScanMode, quick: () => void, primar
   else primary();
 }
 
-export const NETWORK_PANEL_ORDER = ["Network operations", "Discovered devices", "Communication log"] as const;
+export const NETWORK_PANEL_ORDER = ["Connection / Scan settings", "Discovered devices", "Communication log"] as const;
 export const NETWORK_OPERATION_COLUMNS = ["Connection", "Scan settings"] as const;
 export const CONNECTION_ACTION_ORDER = ["Connect", "Start scan"] as const;
+
+export function hasAddressesToComplete(devices: MbusDevice[]): boolean {
+  return devices.some(hasMissingPrimaryAddress);
+}

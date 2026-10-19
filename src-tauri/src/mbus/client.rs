@@ -23,6 +23,7 @@ pub struct SecondaryProbe {
     pub result: Option<DeviceReadResult>,
     pub acknowledgement: Option<Vec<u8>>,
     pub response: Option<Vec<u8>>,
+    pub response_address: Option<u8>,
     pub diagnostic: Option<String>,
 }
 
@@ -34,8 +35,11 @@ pub fn read_primary_address(
     let request = frame::encode_req_ud2(address).map_err(ScanReadError::Protocol)?;
     let response = exchange(port, &request)?;
     let parsed = frame::parse(&response).map_err(ScanReadError::Protocol)?;
-    let result =
+    let mut result =
         parser::decode_response(parsed, &response, baud_rate).map_err(ScanReadError::Protocol)?;
+    // A primary read is addressed to one verified bus address. Keep the requested
+    // address even if the response address field is unusual or manufacturer-specific.
+    result.device.primary_address = Some(address);
     Ok((result, request, response))
 }
 
@@ -54,6 +58,7 @@ pub fn probe_secondary_address(
                 result: None,
                 acknowledgement: None,
                 response: None,
+                response_address: None,
                 diagnostic: None,
             })
         }
@@ -92,12 +97,19 @@ pub fn probe_secondary_address(
             ))
         }
     };
+    let response_address = match &parsed {
+        frame::MbusFrame::Long { address, .. } | frame::MbusFrame::Short { address, .. } => {
+            Some(*address)
+        }
+        frame::MbusFrame::Ack => None,
+    };
     match parser::decode_response(parsed, &response, baud_rate) {
         Ok(result) => Ok(SecondaryProbe {
             kind: SecondaryProbeKind::SingleDevice,
             result: Some(result),
             acknowledgement: Some(acknowledgement),
             response: Some(response),
+            response_address,
             diagnostic: None,
         }),
         Err(message) => Ok(collision_probe(
@@ -140,6 +152,7 @@ fn collision_probe(
         result: None,
         acknowledgement,
         response,
+        response_address: None,
         diagnostic: Some(diagnostic),
     }
 }

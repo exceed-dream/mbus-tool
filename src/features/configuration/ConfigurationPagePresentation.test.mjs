@@ -36,11 +36,11 @@ test("Gas controls use neutral confirmed wording and expose unavailable read-bac
   assert.match(source, /Write · read-back unavailable/);
 });
 
-test("Configuration exposes separate network and selected-device back actions", () => {
-  assert.match(source, /onClick=\{onBackToNetwork\}[^]*Back to network/);
-  assert.match(source, /device && onBackToDevice &&[^]*onClick=\{onBackToDevice\}[^]*Back to device/);
-  assert.match(appSource, /onBackToNetwork=\{\(\) => setPage\("scan"\)\}/);
-  assert.match(appSource, /onBackToDevice=\{selectedDevice \? \(\) => setPage\("device-details"\) : undefined\}/);
+test("Configuration reports unsaved changes to centralized navigation", () => {
+  assert.match(source, /onUnsavedChangesChange\(changes\.length\)/);
+  assert.match(source, /return \(\) => onUnsavedChangesChange\(0\)/);
+  assert.match(appSource, /onUnsavedChangesChange=\{setUnsavedConfigurationChanges\}/);
+  assert.doesNotMatch(source, /Back to network|Back to device/);
 });
 
 test("Configuration uses a responsive Parameters then operation two-column workspace", () => {

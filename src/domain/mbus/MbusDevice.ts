@@ -56,3 +56,14 @@ export interface PadPulsConfiguration {
   denominator: number;
   writeProtected: boolean;
 }
+
+export function completeSecondaryIdentityKey(device: MbusDevice): string | undefined {
+  const identity = device.secondaryAddress;
+  if (!identity) return undefined;
+  return `${identity.identificationNumber}-${identity.manufacturerRaw}-${identity.version}-${identity.medium}`;
+}
+
+export function hasMissingPrimaryAddress(device: MbusDevice): boolean {
+  return completeSecondaryIdentityKey(device) !== undefined
+    && !(Number.isInteger(device.primaryAddress) && device.primaryAddress! >= 0 && device.primaryAddress! <= 250);
+}

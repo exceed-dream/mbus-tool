@@ -26,6 +26,10 @@ export class MbusService {
     return this.client.scanSecondary(observer);
   }
 
+  completeMissingPrimaryAddresses(devices: MbusDevice[], observer?: ScanObserver): Promise<MbusDevice[]> {
+    return this.client.completeMissingPrimaryAddresses(devices, observer);
+  }
+
   readBySecondaryId(identificationNumber: string, observer?: ScanObserver): Promise<DeviceReadResult> {
     return this.client.readBySecondaryId(identificationNumber, observer);
   }

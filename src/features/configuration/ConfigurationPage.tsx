@@ -27,11 +27,10 @@ interface ConfigurationPageProps {
   service: ConfigureDeviceService;
   onLog: (entry: CommunicationLogEntry) => void;
   onDeviceUpdated: (device: MbusDevice) => void;
-  onBackToNetwork: () => void;
-  onBackToDevice?: () => void;
+  onUnsavedChangesChange: (count: number) => void;
 }
 
-export function ConfigurationPage({ device, profile, profileStatus, profileSelectionKind, applicableProfiles, initialEditFieldId, onSelectProfile, connected, service, onLog, onDeviceUpdated, onBackToNetwork, onBackToDevice }: ConfigurationPageProps) {
+export function ConfigurationPage({ device, profile, profileStatus, profileSelectionKind, applicableProfiles, initialEditFieldId, onSelectProfile, connected, service, onLog, onDeviceUpdated, onUnsavedChangesChange }: ConfigurationPageProps) {
   const [configuration, setConfiguration] = useState<DeviceConfiguration>();
   const [status, setStatus] = useState<ConfigurationStatus>("Reading");
   const [error, setError] = useState<string>();
@@ -52,6 +51,11 @@ export function ConfigurationPage({ device, profile, profileStatus, profileSelec
   const validation = useMemo(() => configuration ? service.validateRequestedConfiguration(configuration) : { valid: true, issues: [] }, [configuration, service]);
   const busy = status === "Reading" || status === "Validating" || status === "Writing" || status === "Waiting for ACK" || status === "Verifying";
   const cybleProfile = configuration?.profileId === "itron-cyble-mbus-v2";
+
+  useEffect(() => {
+    onUnsavedChangesChange(changes.length);
+    return () => onUnsavedChangesChange(0);
+  }, [changes.length, onUnsavedChangesChange]);
 
   useEffect(() => {
     if (resetDeviceKey.current === device?.id) return;
@@ -217,7 +221,6 @@ export function ConfigurationPage({ device, profile, profileStatus, profileSelec
   const applyEnabled = isApplyConfigurationEnabled({ connected, changeCount: changes.length, validationValid: validation.valid, busy, writeProtected: protectedConfiguration });
 
   return <div className="page">
-    <div className="configuration-back-actions"><button className="back-button" onClick={onBackToNetwork}><Icon name="arrow"/>Back to network</button>{device && onBackToDevice && <button className="back-button" onClick={onBackToDevice}><Icon name="arrow"/>Back to device</button>}</div>
     <PageHeader eyebrow="Commissioning" title="Configuration" description="Read, edit, write and verify supported device parameters." actions={<button className="button button--ghost configuration-refresh" disabled={!device || !connected || busy} onClick={requestRefresh}><Icon name="refresh"/>Refresh</button>}/>
     <div className="configuration-summary"><div><small>DEVICE</small><strong>{device ? `${device.manufacturer ?? "Unknown"} · ${device.identificationNumber ?? "No identification"}` : "No device selected"}</strong></div><div><small>PROFILE</small>{applicableProfiles.length > 1 || !profile ? <select aria-label="Configuration profile" value={profile?.id ?? ""} disabled={busy && Boolean(profile)} onChange={(event) => requestProfileChange(event.target.value)}><option value="" disabled>Select profile</option>{applicableProfiles.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.manufacturer} {candidate.model}</option>)}</select> : <strong>{profileLabel}</strong>}{profileConfidenceLabel && <small>{profileConfidenceLabel}</small>}</div><div><small>CONFIGURATION STATUS</small><strong className={`configuration-status configuration-status--${status.toLowerCase().replace(" ", "-")}`}>{status}</strong></div></div>
     <div className="tabs"><button className={view === "installer" ? "active" : ""} onClick={() => setView("installer")}>Installer configuration</button><button className={view === "engineering" ? "active" : ""} onClick={() => setView("engineering")}>Engineering diagnostics <span>{result?.write.telegrams.length ?? 0}</span></button></div>

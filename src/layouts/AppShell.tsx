@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import type { OperationStatus } from "../domain/commissioning/OperationStatus";
 import { Icon, type IconName } from "../components/Icon";
-import type { MbusMode } from "../App";
+import { Breadcrumb } from "../components/Breadcrumb";
+import { APP_BREADCRUMBS, parentBreadcrumbItem, type AppPage } from "./appNavigation";
 
-export type AppPage = "scan" | "device-details" | "configuration" | "device-library" | "settings";
+export type { AppPage } from "./appNavigation";
 
 const navGroups: { label: string; items: { page: AppPage; label: string; icon: IconName }[] }[] = [
   { label: "Network", items: [{ page: "scan", label: "Scan", icon: "network" }] },
@@ -11,8 +12,9 @@ const navGroups: { label: string; items: { page: AppPage; label: string; icon: I
   { label: "System", items: [{ page: "settings", label: "Settings", icon: "settings" }] },
 ];
 
-export function AppShell({ currentPage, connectionStatus, mode, interfaceName, onNavigate, children }: { currentPage: AppPage; connectionStatus: OperationStatus; mode: MbusMode; interfaceName: string; onNavigate: (page: AppPage) => void; children: ReactNode }) {
+export function AppShell({ currentPage, connectionStatus, interfaceName, onNavigate, children }: { currentPage: AppPage; connectionStatus: OperationStatus; interfaceName: string; onNavigate: (page: AppPage) => void; children: ReactNode }) {
   const activeNav = currentPage === "device-details" || currentPage === "configuration" ? "scan" : currentPage;
+  const parent = parentBreadcrumbItem(currentPage);
   const connected = connectionStatus === "connected";
   return <div className="app-shell">
     <aside className="sidebar">
@@ -21,8 +23,8 @@ export function AppShell({ currentPage, connectionStatus, mode, interfaceName, o
       <div className="sidebar__footer"><div className="master-card"><div className="master-card__icon"><Icon name="usb" /></div><div><span>M-Bus Master</span><strong>{connected ? `${interfaceName} · Connected` : "No connection"}</strong></div><span className={`connection-dot ${connected ? "connection-dot--on" : ""}`} /></div><div className="version">Read + protected config <span>v0.1.0</span></div></div>
     </aside>
     <div className="workspace">
-      <header className="topbar"><div className="breadcrumb"><span>M-Bus Tool</span><Icon name="chevron" size={14}/><strong>{currentPage === "device-library" ? "Device Library" : currentPage === "settings" ? "Settings" : currentPage === "configuration" ? "Configuration" : currentPage === "device-details" ? "Device Details" : "Network Scan"}</strong></div><div className="topbar__status"><span className="mock-label">{mode.toUpperCase()} MODE</span><span className="divider"/><span className={`connection-dot ${connected ? "connection-dot--on" : ""}`}/>{connected ? `Connected to ${interfaceName}` : "Disconnected"}</div></header>
-      <main className="content">{children}</main>
+      <header className="topbar"><Breadcrumb items={APP_BREADCRUMBS[currentPage]} onNavigate={onNavigate}/></header>
+      <main className="content">{parent && <div className="content-back"><button type="button" className="icon-button content-back__button" title={`Back to ${parent.label}`} aria-label={`Back to ${parent.label}`} onClick={() => onNavigate(parent.target!)}><Icon name="chevron-left"/></button></div>}{children}</main>
     </div>
   </div>;
 }

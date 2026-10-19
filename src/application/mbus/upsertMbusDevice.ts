@@ -1,4 +1,4 @@
-import type { MbusDevice, MbusSecondaryAddress } from "../../domain/mbus/MbusDevice";
+import { completeSecondaryIdentityKey, type MbusDevice, type MbusSecondaryAddress } from "../../domain/mbus/MbusDevice.ts";
 
 export interface MbusDeviceListItem extends MbusDevice {
   listKey: string;
@@ -16,23 +16,25 @@ export function upsertMbusDevices(current: MbusDeviceListItem[], incoming: MbusD
     const replacementIndex = options.replaces ? merged.findIndex((candidate) => sameMbusDevice(candidate, options.replaces!)) : -1;
     const index = replacementIndex >= 0 ? replacementIndex : merged.findIndex((candidate) => sameMbusDevice(candidate, device));
     if (index < 0) {
-      merged.push({ ...device, listKey: stableMbusDeviceKey(device) });
+      merged.push({ ...device, primaryAddress: validPrimaryAddress(device.primaryAddress), listKey: stableMbusDeviceKey(device) });
       continue;
     }
 
     const existing = merged[index];
+    const incomingPrimaryAddress = validPrimaryAddress(device.primaryAddress);
     const previousPrimaryAddress = options.showPrimaryAddressChange
       && existing.primaryAddress !== undefined
-      && device.primaryAddress !== undefined
-      && existing.primaryAddress !== device.primaryAddress
+      && incomingPrimaryAddress !== undefined
+      && existing.primaryAddress !== incomingPrimaryAddress
       ? existing.primaryAddress
       : undefined;
     merged[index] = {
       ...existing,
-      ...device,
+      ...definedDeviceProperties(device),
       id: device.id,
       listKey: existing.listKey,
-      primaryAddress: device.primaryAddress ?? existing.primaryAddress,
+      primaryAddress: incomingPrimaryAddress ?? existing.primaryAddress,
+      secondaryAddress: device.secondaryAddress ?? existing.secondaryAddress,
       previousPrimaryAddress,
     };
   }
@@ -40,7 +42,7 @@ export function upsertMbusDevices(current: MbusDeviceListItem[], incoming: MbusD
 }
 
 export function sameMbusDevice(left: MbusDevice, right: MbusDevice): boolean {
-  if (left.secondaryAddress && right.secondaryAddress && sameCompleteSecondaryIdentity(left.secondaryAddress, right.secondaryAddress)) return true;
+  if (left.secondaryAddress && right.secondaryAddress) return sameCompleteSecondaryIdentity(left.secondaryAddress, right.secondaryAddress);
 
   const leftIdentification = identificationNumber(left);
   const rightIdentification = identificationNumber(right);
@@ -50,6 +52,14 @@ export function sameMbusDevice(left: MbusDevice, right: MbusDevice): boolean {
 
   if (leftIdentification || rightIdentification) return false;
   return left.primaryAddress !== undefined && left.primaryAddress === right.primaryAddress;
+}
+
+function validPrimaryAddress(address?: number): number | undefined {
+  return Number.isInteger(address) && address! >= 0 && address! <= 250 ? address : undefined;
+}
+
+function definedDeviceProperties(device: MbusDevice): Partial<MbusDevice> {
+  return Object.fromEntries(Object.entries(device).filter(([, value]) => value !== undefined)) as Partial<MbusDevice>;
 }
 
 export function stableMbusDeviceKey(device: MbusDevice): string {
@@ -65,6 +75,23 @@ export function stableMbusDeviceKey(device: MbusDevice): string {
 export function withoutDeviceListMetadata(device: MbusDeviceListItem): MbusDevice {
   const { listKey: _listKey, previousPrimaryAddress: _previousPrimaryAddress, ...mbusDevice } = device;
   return mbusDevice;
+}
+
+export function completePrimaryAddresses(current: MbusDeviceListItem[], matches: MbusDevice[]): MbusDeviceListItem[] {
+  const addressByIdentity = new Map(
+    matches.flatMap((device) => {
+      const key = completeSecondaryIdentityKey(device);
+      const address = validPrimaryAddress(device.primaryAddress);
+      return key && address !== undefined ? [[key, address] as const] : [];
+    }),
+  );
+  return current.map((device) => {
+    const key = completeSecondaryIdentityKey(device);
+    const address = key ? addressByIdentity.get(key) : undefined;
+    return device.primaryAddress === undefined && address !== undefined
+      ? { ...device, primaryAddress: address }
+      : device;
+  });
 }
 
 function sameCompleteSecondaryIdentity(left: MbusSecondaryAddress, right: MbusSecondaryAddress): boolean {

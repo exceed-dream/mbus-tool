@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { MbusService } from "./application/mbus/MbusService";
-import { upsertMbusDevices, withoutDeviceListMetadata, type MbusDeviceListItem } from "./application/mbus/upsertMbusDevice";
+import { completePrimaryAddresses, upsertMbusDevices, withoutDeviceListMetadata, type MbusDeviceListItem } from "./application/mbus/upsertMbusDevice";
 import { hasEditableConfigurationFields } from "./application/devices/configurationCapability";
 import { applicableProfilesForMatch, defaultProfileForMatch } from "./application/devices/DeviceProfileSelection";
 import { ConfigureDeviceService } from "./application/configuration/ConfigureDeviceService";
+import { exportMbusDevices, type MbusDevicesExportFormat } from "./application/export/MbusDevicesExportService";
 import type { OperationStatus } from "./domain/commissioning/OperationStatus";
 import type { CommunicationLogEntry, ScanProgress } from "./domain/mbus/MbusClient";
-import type { MbusDevice } from "./domain/mbus/MbusDevice";
+import { hasMissingPrimaryAddress, type MbusDevice } from "./domain/mbus/MbusDevice";
 import type { SerialConnectionSettings, SerialPortInfo } from "./domain/mbus/MbusTransport";
 import { ConfigurationPage } from "./features/configuration/ConfigurationPage";
 import { DeviceDetailsPage } from "./features/device-details/DeviceDetailsPage";
@@ -23,6 +24,7 @@ import { PadPulsM1Adapter } from "./infrastructure/devices/PadPulsM1Adapter";
 import { DeviceProtocolAdapterRegistry } from "./infrastructure/devices/DeviceProtocolAdapterRegistry";
 import { ItronCybleMbusV2Adapter } from "./infrastructure/devices/ItronCybleMbusV2Adapter";
 import { AppShell, type AppPage } from "./layouts/AppShell";
+import { navigationRequiresConfirmation } from "./layouts/appNavigation";
 import "./styles/global.css";
 
 const deviceRepository = new MockDeviceRepository();
@@ -41,10 +43,12 @@ function App() {
   const [settings, setSettings] = useState<SerialConnectionSettings>(defaultSettings);
   const [scanRange, setScanRange] = useState({ startAddress: 0, endAddress: 250 });
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [addressCompletion, setAddressCompletion] = useState<{ resolved: number; total: number } | null>(null);
   const [logs, setLogs] = useState<CommunicationLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [manualProfileId, setManualProfileId] = useState<string>();
   const [configurationTargetFieldId, setConfigurationTargetFieldId] = useState<string>();
+  const [unsavedConfigurationChanges, setUnsavedConfigurationChanges] = useState(0);
   const services = useMemo(() => {
     if (mode === "real") {
       const transport = new SerialMbusTransport();
@@ -118,7 +122,7 @@ function App() {
       return;
     }
     try {
-      setError(null); setDevices([]); setScanProgress(null); setScanStatus("scanning");
+      setError(null); setDevices([]); setScanProgress(null); setAddressCompletion(null); setScanStatus("scanning");
       const discovered = await mbusService.scanPrimary(scanRange, observer);
       setDevices((current) => upsertMbusDevices(current, discovered));
       setScanStatus((current) => current === "idle" ? "idle" : "success");
@@ -130,17 +134,39 @@ function App() {
   const handleQuickScan = async () => {
     if (connectionStatus !== "connected") return;
     try {
-      setError(null); setDevices([]); setScanProgress(null); setScanStatus("scanning");
+      setError(null); setDevices([]); setScanProgress(null); setAddressCompletion(null); setScanStatus("scanning");
       const discovered = await mbusService.scanSecondary(observer);
       setDevices((current) => upsertMbusDevices(current, discovered));
       setScanStatus((current) => current === "idle" ? "idle" : "success");
     } catch (caught) { setScanStatus("error"); setError(readError(caught)); }
   };
 
+  const handleCompleteMissingAddresses = async () => {
+    if (connectionStatus !== "connected") return;
+    const targets = devices.filter(hasMissingPrimaryAddress).map(withoutDeviceListMetadata);
+    if (!targets.length) return;
+    try {
+      setError(null); setScanProgress(null); setScanStatus("scanning"); setAddressCompletion({ resolved: 0, total: targets.length });
+      const completionObserver = {
+        onProgress: setScanProgress,
+        onDevice: ({ device }: { device: MbusDevice }) => {
+          setDevices((current) => completePrimaryAddresses(current, [device]));
+          setAddressCompletion((current) => current ? { ...current, resolved: Math.min(current.resolved + 1, current.total) } : current);
+        },
+        onLog: observer.onLog,
+      };
+      const matches = await mbusService.completeMissingPrimaryAddresses(targets, completionObserver);
+      setDevices((current) => completePrimaryAddresses(current, matches));
+      setScanStatus((current) => current === "idle" ? "idle" : "success");
+    } catch (caught) {
+      setScanStatus("error"); setError(readError(caught));
+    }
+  };
+
   const handleKnownId = async (identificationNumber: string) => {
     if (connectionStatus !== "connected") return;
     try {
-      setError(null); setScanProgress(null); setScanStatus("reading");
+      setError(null); setScanProgress(null); setAddressCompletion(null); setScanStatus("reading");
       const result = await mbusService.readBySecondaryId(identificationNumber, observer);
       setDevices((current) => upsertMbusDevices(current, [result.device]));
       setSelectedDevice(result.device);
@@ -148,11 +174,26 @@ function App() {
     } catch (caught) { setScanStatus("error"); setError(readError(caught)); }
   };
 
-  const handleStop = async () => { await mbusService.stopScan(); setScanStatus("idle"); };
+  const handleStop = async () => { await mbusService.stopScan(); setScanStatus("idle"); setAddressCompletion(null); };
+
+  const handleExportDevices = (format: MbusDevicesExportFormat) => {
+    const sources = devices.map((item) => {
+      const device = withoutDeviceListMetadata(item);
+      const records = mbusService.getCachedRecords(device.id);
+      const rawTelegram = mbusService.getRawTelegram(device.id);
+      return {
+        device,
+        records,
+        readingTimestamp: rawTelegram?.timestamp ?? device.lastReadAt,
+        readingAvailable: Boolean(rawTelegram || device.lastReadAt || records.length),
+      };
+    });
+    exportMbusDevices(sources, format);
+  };
 
   const handleModeChange = async (nextMode: MbusMode) => {
     if (connectionStatus === "connected") await mbusService.disconnect().catch(() => undefined);
-    setMode(nextMode); setConnectionStatus("disconnected"); setScanStatus("idle"); setDevices([]); setSelectedDevice(null); setLogs([]); setError(null);
+    setMode(nextMode); setConnectionStatus("disconnected"); setScanStatus("idle"); setDevices([]); setSelectedDevice(null); setLogs([]); setError(null); setAddressCompletion(null);
     setSettings((current) => ({ ...current, portName: nextMode === "mock" ? "MOCK" : "" }));
   };
 
@@ -185,6 +226,13 @@ function App() {
     setPage("configuration");
   };
 
+  const navigate = (targetPage: AppPage) => {
+    if (targetPage === page) return;
+    if (navigationRequiresConfirmation(page, targetPage, unsavedConfigurationChanges)
+      && !window.confirm("Discard unsaved configuration changes and leave this page?")) return;
+    setPage(targetPage);
+  };
+
   const scanPage = (
     <ScanPage
       connectionStatus={connectionStatus}
@@ -195,6 +243,7 @@ function App() {
       settings={settings}
       scanRange={scanRange}
       progress={scanProgress}
+      addressCompletion={addressCompletion}
       logs={logs}
       error={error}
       onModeChange={handleModeChange}
@@ -204,10 +253,12 @@ function App() {
       onConnect={handleConnect}
       onPrimaryScan={handlePrimaryScan}
       onQuickScan={handleQuickScan}
+      onCompleteMissingAddresses={handleCompleteMissingAddresses}
       onReadById={handleKnownId}
       onStop={handleStop}
       onOpenDevice={openDevice}
       onConfigureDevice={openDeviceConfiguration}
+      onExportDevices={handleExportDevices}
       canConfigureDevice={(device) => applicableProfilesForMatch(configureService.identify(device, profiles), profiles).some(hasEditableConfigurationFields)}
       getRecords={(device) => mbusService.getCachedRecords(device.id)}
     />
@@ -227,7 +278,6 @@ function App() {
             profile={selectedProfile}
             onRead={handleReadDevice}
             onConfigure={openConfiguration}
-            onBack={() => setPage("scan")}
           />
         ) : scanPage;
       case "configuration":
@@ -248,8 +298,7 @@ function App() {
               setSelectedDevice(device);
               setDevices((current) => upsertMbusDevices(current, [device], { replaces: previousDevice, showPrimaryAddressChange: true }));
             }}
-            onBackToNetwork={() => setPage("scan")}
-            onBackToDevice={selectedDevice ? () => setPage("device-details") : undefined}
+            onUnsavedChangesChange={setUnsavedConfigurationChanges}
           />
         );
       case "device-library":
@@ -262,7 +311,7 @@ function App() {
   };
 
   return (
-    <AppShell currentPage={page} connectionStatus={connectionStatus} mode={mode} interfaceName={settings.portName} onNavigate={setPage}>
+    <AppShell currentPage={page} connectionStatus={connectionStatus} interfaceName={settings.portName} onNavigate={navigate}>
       {renderPage()}
     </AppShell>
   );

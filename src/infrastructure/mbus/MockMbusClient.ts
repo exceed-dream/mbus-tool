@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { DeviceReadResult, ManufacturerFrameWriteRequest, MbusClient, PadPulsWriteRequest, PrimaryAddressWriteRequest, PrimaryScanOptions, RawTelegram, ScanObserver } from "../../domain/mbus/MbusClient";
 import type { ConfigurationWriteResult, TechnicalTelegram } from "../../domain/configuration/DeviceConfiguration";
 import type { MbusDataRecord } from "../../domain/mbus/MbusDataRecord";
-import type { MbusDevice } from "../../domain/mbus/MbusDevice";
+import { completeSecondaryIdentityKey, type MbusDevice } from "../../domain/mbus/MbusDevice";
 import type { MbusTransport } from "../../domain/mbus/MbusTransport";
 import { mockDevices, mockRecords } from "./mockData";
 import { mediumLabel } from "../../domain/mbus/MbusMedium";
@@ -54,13 +54,47 @@ export class MockMbusClient implements MbusClient {
         observer?.onProgress?.({ kind: "secondary", mask, devicesFound: devices.length, state: "stopped" });
         return devices;
       }
-      const secondaryDevice = { ...device, primaryAddress: undefined };
+      const secondaryDevice = device.protocolHint === "RELAY_PADPULS_M1"
+        ? { ...device, primaryAddress: undefined }
+        : { ...device };
       const result = this.makeResult(secondaryDevice);
       devices.push(secondaryDevice);
+      observer?.onLog?.({ timestamp: new Date().toISOString(), level: "RX", message: secondaryDevice.primaryAddress === undefined ? "Mock secondary response (A=0xFD)" : `Mock secondary response (A=0x${secondaryDevice.primaryAddress.toString(16).padStart(2, "0").toUpperCase()})`, address: secondaryDevice.primaryAddress ?? 0xfd, hex: result.rawTelegram.hex });
+      observer?.onLog?.({ timestamp: new Date().toISOString(), level: "VERIFY", message: secondaryDevice.primaryAddress === undefined ? "Primary address remains unknown" : "Primary address confirmed by complete secondary identity", address: secondaryDevice.primaryAddress });
       observer?.onDevice?.(result);
     }
     observer?.onProgress?.({ kind: "secondary", mask: "", devicesFound: devices.length, state: "completed" });
     return devices;
+  }
+
+  async completeMissingPrimaryAddresses(devices: MbusDevice[], observer?: ScanObserver): Promise<MbusDevice[]> {
+    this.assertConnected();
+    this.cancelled = false;
+    const remaining = new Set(devices.map(completeSecondaryIdentityKey).filter((key): key is string => Boolean(key)));
+    const matches: MbusDevice[] = [];
+    observer?.onLog?.({ timestamp: new Date().toISOString(), level: "PRIMARY", message: "Completing missing primary addresses" });
+    for (let address = 0; address <= 250; address += 1) {
+      observer?.onProgress?.({ kind: "primary", currentAddress: address, startAddress: 0, endAddress: 250, devicesFound: matches.length, state: "scanning" });
+      if (this.cancelled) {
+        observer?.onProgress?.({ kind: "primary", currentAddress: address, startAddress: 0, endAddress: 250, devicesFound: matches.length, state: "stopped" });
+        return matches;
+      }
+      await wait(4);
+      const device = mockDevices.find((candidate) => candidate.primaryAddress === address);
+      const key = device ? completeSecondaryIdentityKey(device) : undefined;
+      if (!device || !key || !remaining.has(key)) continue;
+      remaining.delete(key);
+      matches.push({ ...device });
+      const result = this.makeResult(device);
+      observer?.onLog?.({ timestamp: new Date().toISOString(), level: "VERIFY", message: "Missing primary address resolved", address });
+      observer?.onDevice?.(result);
+      if (!remaining.size) {
+        observer?.onProgress?.({ kind: "primary", currentAddress: address, startAddress: 0, endAddress: 250, devicesFound: matches.length, state: "completed" });
+        return matches;
+      }
+    }
+    observer?.onProgress?.({ kind: "primary", currentAddress: 250, startAddress: 0, endAddress: 250, devicesFound: matches.length, state: "completed" });
+    return matches;
   }
 
   async readBySecondaryId(identificationNumber: string, observer?: ScanObserver): Promise<DeviceReadResult> {
@@ -68,7 +102,7 @@ export class MockMbusClient implements MbusClient {
     const device = mockDevices.find((candidate) => candidate.identificationNumber === identificationNumber);
     if (!device) throw new Error(`No mock device with secondary ID ${identificationNumber}`);
     observer?.onLog?.({ timestamp: new Date().toISOString(), level: "SECONDARY", message: `Device found: ${identificationNumber}` });
-    return this.makeResult({ ...device, primaryAddress: undefined });
+    return this.makeResult({ ...device });
   }
 
   stopScan(): Promise<void> { this.cancelled = true; return Promise.resolve(); }
